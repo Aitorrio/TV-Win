@@ -1,0 +1,81 @@
+name: Release Windows
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt pyinstaller
+
+      - name: Fetch embedded mpv
+        shell: pwsh
+        run: ./scripts/fetch_mpv.ps1
+
+      - name: Build portable
+        shell: pwsh
+        run: |
+          python -m PyInstaller `
+            --noconfirm `
+            --windowed `
+            --name TV-Win `
+            --onedir `
+            --clean `
+            --add-binary "player/mpv.exe;player" `
+            --collect-all streamlink `
+            --hidden-import streamlink.plugins.atresplayer `
+            main.py
+          New-Item -ItemType Directory -Force -Path "dist/TV-Win/player" | Out-Null
+          Copy-Item "player/mpv.exe" "dist/TV-Win/player/mpv.exe" -Force
+          if (-not (Test-Path "dist/TV-Win/player/mpv.exe") -and -not (Test-Path "dist/TV-Win/_internal/player/mpv.exe")) {
+            throw "Build sin mpv.exe"
+          }
+
+      - name: Pack ZIP
+        shell: pwsh
+        run: |
+          $ver = "${{ github.ref_name }}"
+          if ($ver -notlike "v*") { $ver = "dev" }
+          $zip = "TV-Win-windows-x64.zip"
+          if (Test-Path $zip) { Remove-Item $zip -Force }
+          Compress-Archive -Path "dist/TV-Win/*" -DestinationPath $zip -Force
+          Get-Item $zip | Format-List Name, Length
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: TV-Win-windows-x64
+          path: TV-Win-windows-x64.zip
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: TV-Win-windows-x64.zip
+          generate_release_notes: true
+          body: |
+            ## TV-Win ${{ github.ref_name }}
+
+            Portable para Windows x64. Extrae y ejecuta `TV-Win.exe`.
+
+            Autor: **Aitor Riolobos (EA4HBL)** · https://github.com/Aitorrio
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
