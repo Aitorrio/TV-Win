@@ -27,6 +27,7 @@ mkdir "dist\TV-Win\player" 2>nul
 copy /Y "player\mpv.exe" "dist\TV-Win\player\mpv.exe" >nul
 mkdir "dist\TV-Win\assets" 2>nul
 xcopy /E /I /Y "assets\*" "dist\TV-Win\assets\" >nul
+python -c "from tvwin import __version__; open(r'dist/TV-Win/version.txt','w',encoding='utf-8').write(__version__)"
 
 echo.
 echo Portable: dist\TV-Win\TV-Win.exe

@@ -5,8 +5,6 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
-import sys
-import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -21,6 +19,14 @@ MPV_CANDIDATES = (
 VLC_CANDIDATES = (
     Path(r"C:\Program Files\VideoLAN\VLC\vlc.exe"),
     Path(r"C:\Program Files (x86)\VideoLAN\VLC\vlc.exe"),
+)
+
+# Evita ventanas de consola al lanzar mpv / helpers en Windows.
+_CREATE_NO_WINDOW = 0x08000000 if os.name == "nt" else 0
+_DEFAULT_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/120.0.0.0 Safari/537.36"
 )
 
 
@@ -41,9 +47,6 @@ class StreamPlayer:
         self.options = options or PlayerOptions()
         self._last_channel: Channel | None = None
         self._last_media_url: str | None = None
-        self._streamlink_config = Path(tempfile.gettempdir()) / "tv-win-streamlink.conf"
-        if not self._streamlink_config.exists():
-            self._streamlink_config.write_text("", encoding="utf-8")
 
     @property
     def backend_name(self) -> str:
@@ -77,13 +80,11 @@ class StreamPlayer:
             "Descarga la release oficial o vuelve a generar el portable."
         )
 
-    def _streamlink_cmd(self) -> list[str] | None:
-        exe = shutil.which("streamlink")
-        if exe:
-            return [exe]
-        if getattr(sys, "frozen", False):
-            return None
-        return [sys.executable, "-m", "streamlink"]
+    def _creationflags(self) -> int:
+        if os.name != "nt":
+            return 0
+        # CREATE_NO_WINDOW + NEW_PROCESS_GROUP: sin CMD a la vista.
+        return _CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
 
     def _mpv_window_args(self, title: str) -> list[str]:
         args = [
@@ -91,7 +92,10 @@ class StreamPlayer:
             "--keep-open=no",
             "--terminal=no",
             "--osc=yes",
+            "--ytdl=no",
             f"--title={title}",
+            f"--user-agent={_DEFAULT_UA}",
+            "--aid=auto",
         ]
         if self.options.fullscreen:
             args.append("--fs")
@@ -99,11 +103,6 @@ class StreamPlayer:
             geometry = (self.options.geometry or "80%").strip() or "80%"
             args.append(f"--geometry={geometry}")
         return args
-
-    def _player_args_string(self, title: str) -> str:
-        parts = self._mpv_window_args(title)
-        # streamlink --player-args: espacios separados
-        return " ".join(parts)
 
     def stop(self) -> None:
         if self._process is None:
@@ -121,10 +120,11 @@ class StreamPlayer:
         exe = str(self.backend_path)
         title = f"TV-Win · {channel.name}"
         extra: list[str] = []
-        if channel.referer and name == "mpv":
-            extra.append(f"--referrer={channel.referer}")
-
         if name == "mpv":
+            if channel.referer:
+                extra.append(f"--referrer={channel.referer}")
+                # Cabeceras HTTP explícitas (DASH Atresmedia necesita Referer).
+                extra.append(f"--http-header-fields=Referer: {channel.referer}")
             args = [exe, *self._mpv_window_args(title), *extra, media_url]
         else:
             args = [
@@ -134,15 +134,12 @@ class StreamPlayer:
                 media_url,
             ]
 
-        creationflags = 0
-        if os.name == "nt":
-            creationflags = subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
-
         self._process = subprocess.Popen(
             args,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            creationflags=creationflags,
+            creationflags=self._creationflags(),
+            stdin=subprocess.DEVNULL,
         )
         self._last_channel = channel
         self._last_media_url = media_url
@@ -156,68 +153,29 @@ class StreamPlayer:
             ) from exc
 
         session = Streamlink()
+        session.set_option("http-headers", {
+            "User-Agent": _DEFAULT_UA,
+            "Referer": "https://www.atresplayer.com/",
+        })
         streams = session.streams(page_url)
         if not streams:
             raise PlayerError(
                 "Sin stream (¿IP fuera de España o canal restringido?)."
             )
-        stream = streams.get("best") or next(iter(streams.values()))
+        # Preferir calidades con nombre; "best" en Atresplayer es DASH MPD.
+        stream = streams.get("best") or streams.get("1080p") or next(iter(streams.values()))
         try:
-            return stream.to_url()
+            media_url = stream.to_url()
         except Exception as exc:  # noqa: BLE001
             raise PlayerError(f"No se pudo resolver el stream: {exc}") from exc
-
-    def _play_via_streamlink_cli(self, channel: Channel, cmd: list[str]) -> None:
-        title = f"TV-Win · {channel.name}"
-        args = [
-            *cmd,
-            "--config",
-            str(self._streamlink_config),
-            "--player",
-            str(self.backend_path),
-            "--player-args",
-            self._player_args_string(title),
-            "--default-stream",
-            "best",
-            "--retry-streams",
-            "3",
-            channel.url,
-        ]
-        creationflags = 0
-        if os.name == "nt":
-            creationflags = subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
-
-        self._process = subprocess.Popen(
-            args,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
-            text=True,
-            creationflags=creationflags,
-        )
-        try:
-            code = self._process.wait(timeout=1.5)
-        except subprocess.TimeoutExpired:
-            self._last_channel = channel
-            self._last_media_url = None
-            return
-        err = ""
-        if self._process.stderr is not None:
-            err = self._process.stderr.read() or ""
-        self._process = None
-        hint = err.strip().splitlines()[-1] if err.strip() else f"código {code}"
-        raise PlayerError(f"Streamlink CLI falló ({hint}).")
+        if not media_url:
+            raise PlayerError("Streamlink no devolvió una URL de medios.")
+        return media_url
 
     def _play_via_streamlink(self, channel: Channel) -> None:
+        """Atresplayer/YouTube: resolver con API (sin CLI → sin ventana CMD)."""
         if self.backend_name != "mpv":
             raise PlayerError("Atresplayer requiere mpv (no VLC) en esta versión.")
-
-        cmd = self._streamlink_cmd()
-        if cmd is not None:
-            try:
-                self._play_via_streamlink_cli(channel, cmd)
-                return
-            except PlayerError:
-                pass
 
         media_url = self._resolve_streamlink_api(channel.url)
         referer = channel.referer or "https://www.atresplayer.com/"

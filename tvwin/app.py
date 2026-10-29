@@ -15,7 +15,7 @@ from .channels import Channel, ambits_from, load_channels
 from .logos import LogoCache
 from .paths import app_dir, asset_path, data_dir
 from .player import PlayerError, PlayerOptions, StreamPlayer
-from .updates import check_latest
+from .updates import UpdateInfo, apply_update, check_latest, launch_updater
 
 DEFAULT_PREFS: dict[str, Any] = {
     "group": "Nacionales",
@@ -27,6 +27,7 @@ DEFAULT_PREFS: dict[str, Any] = {
     "start_fullscreen": False,
     "minimize_to_tray": False,
     "check_updates": True,
+    "update_channel": "stable",
 }
 
 
@@ -74,7 +75,8 @@ class TVWinApp(tk.Tk):
         self._tray_icon = None
         self._tray_thread: threading.Thread | None = None
         self._quitting = False
-        self._update_url: str | None = None
+        self._update_info: UpdateInfo | None = None
+        self._updating = False
 
         self._set_window_icon()
         self._build_style()
@@ -423,6 +425,9 @@ class TVWinApp(tk.Tk):
         fs_var = tk.BooleanVar(value=bool(self._prefs.get("start_fullscreen", False)))
         tray_var = tk.BooleanVar(value=bool(self._prefs.get("minimize_to_tray", False)))
         upd_var = tk.BooleanVar(value=bool(self._prefs.get("check_updates", True)))
+        channel_raw = str(self._prefs.get("update_channel") or "stable")
+        channel_label = "Beta" if channel_raw == "beta" else "Estable"
+        channel_var = tk.StringVar(value=channel_label)
 
         row = ttk.Frame(frame)
         row.pack(fill=tk.X, pady=4)
@@ -434,6 +439,18 @@ class TVWinApp(tk.Tk):
             width=10,
         )
         geo.pack(side=tk.RIGHT)
+
+        row2 = ttk.Frame(frame)
+        row2.pack(fill=tk.X, pady=8)
+        ttk.Label(row2, text="Canal de actualizaciones").pack(side=tk.LEFT)
+        channel = ttk.Combobox(
+            row2,
+            textvariable=channel_var,
+            values=["Estable", "Beta"],
+            state="readonly",
+            width=10,
+        )
+        channel.pack(side=tk.RIGHT)
 
         ttk.Checkbutton(
             frame, text="Iniciar reproducción a pantalla completa", variable=fs_var
@@ -450,6 +467,9 @@ class TVWinApp(tk.Tk):
             self._prefs["start_fullscreen"] = fs_var.get()
             self._prefs["minimize_to_tray"] = tray_var.get()
             self._prefs["check_updates"] = upd_var.get()
+            self._prefs["update_channel"] = (
+                "beta" if channel_var.get().strip().lower().startswith("beta") else "stable"
+            )
             _save_prefs(self._prefs)
             if self._player is not None:
                 self._player.options.geometry = str(self._prefs["geometry_mpv"])
@@ -696,19 +716,57 @@ class TVWinApp(tk.Tk):
     # --- updates / tray / close -------------------------------------------------
 
     def _check_updates_worker(self) -> None:
-        result = check_latest()
+        channel = str(self._prefs.get("update_channel") or "stable")
+        result = check_latest(channel)
         if result is None:
             return
-        tag, url = result
-        self.after(0, lambda: self._show_update(tag, url))
+        self.after(0, lambda: self._show_update(result))
 
-    def _show_update(self, tag: str, url: str) -> None:
-        self._update_url = url
-        self.update_var.set(f"Nueva versión {tag} · abrir")
+    def _show_update(self, info: UpdateInfo) -> None:
+        self._update_info = info
+        label = "beta" if info.channel == "beta" else "estable"
+        self.update_var.set(f"Nueva {info.version} ({label}) · actualizar")
 
     def _open_update(self) -> None:
-        if self._update_url:
-            webbrowser.open(self._update_url)
+        info = self._update_info
+        if info is None or self._updating:
+            return
+        if not messagebox.askyesno(
+            "Actualizar TV-Win",
+            f"Hay TV-Win {info.version} ({info.tag}).\n\n"
+            "Se descargará el portable y la app se reiniciará.\n"
+            "¿Actualizar ahora?",
+        ):
+            webbrowser.open(info.html_url)
+            return
+        self._updating = True
+        self.status_var.set(f"Descargando {info.version}…")
+        self.update_var.set("Descargando actualización…")
+
+        def worker() -> None:
+            error: Exception | None = None
+            script: Path | None = None
+            try:
+                script = apply_update(info)
+            except Exception as exc:  # noqa: BLE001
+                error = exc
+            self.after(0, lambda: self._update_download_done(script, error))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _update_download_done(self, script: Path | None, error: Exception | None) -> None:
+        self._updating = False
+        if error is not None or script is None:
+            messagebox.showerror(
+                "Actualización",
+                f"No se pudo descargar la actualización.\n{error or ''}",
+            )
+            self.status_var.set("Error al actualizar")
+            if self._update_info is not None:
+                self._show_update(self._update_info)
+            return
+        launch_updater(script)
+        self._quit_app()
 
     def _ensure_tray(self) -> None:
         if self._tray_icon is not None:

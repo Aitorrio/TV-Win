@@ -8,18 +8,25 @@ El catálogo se obtiene de la misma fuente pública que usa [TDT Spain](https://
 
 ## Descargar
 
-Ve a [Releases](https://github.com/Aitorrio/TV-Win/releases) y descarga `TV-Win-windows-x64.zip`.
+Ve a [Releases](https://github.com/Aitorrio/TV-Win/releases):
+
+| Canal | Tag | Rama |
+|-------|-----|------|
+| **Estable** | [`latest-stable`](https://github.com/Aitorrio/TV-Win/releases/tag/latest-stable) | `main` |
+| **Beta** | [`latest-beta`](https://github.com/Aitorrio/TV-Win/releases/tag/latest-beta) | `beta` |
 
 1. Extrae la carpeta  
 2. Ejecuta `TV-Win.exe`  
 3. Elige un canal (doble clic o *Ver canal*)
+
+La app puede comprobar y aplicar actualizaciones sola (Ajustes → canal Estable/Beta).
 
 ## Qué reproduce
 
 | Tipo | Ejemplos | Cómo |
 |------|----------|------|
 | HLS directo | La 1, La 2, TRECE | mpv |
-| Atresmedia | Antena 3, laSexta, Neox… | Streamlink → mpv |
+| Atresmedia | Antena 3, laSexta, Neox… | Streamlink API → DASH/HLS → mpv |
 | Mediaset | Cuatro, Telecinco, FDF… | HLS SSAI → mpv (anuncios de la cadena) |
 
 Algunos canales pueden exigir IP en España (GEO).
@@ -36,7 +43,7 @@ Algunos canales pueden exigir IP en España (GEO).
 | `PgUp` / `PgDn` | Canal anterior / siguiente |
 | `Ctrl` + `,` | Ajustes |
 
-También: filtro **Favoritos**, clic en ★/☆ de la lista, bandeja del sistema (opcional en Ajustes) y aviso si hay una release nueva en GitHub.
+También: filtro **Favoritos**, clic en ★/☆ de la lista y bandeja del sistema (opcional en Ajustes).
 
 ## Desarrollo
 
@@ -60,16 +67,10 @@ build_portable.bat
 
 ## Release automática
 
-Al publicar un tag `v*` (por ejemplo `v1.2.0`), GitHub Actions:
+- Push a **`main`** → release rolling **`latest-stable`**
+- Push a **`beta`** → release rolling **`latest-beta`** (prerelease)
 
-1. Compila en Windows  
-2. Embebe mpv e iconos  
-3. Sube `TV-Win-windows-x64.zip` a la Release  
-
-```bash
-git tag v1.2.0
-git push origin v1.2.0
-```
+Cada build embebe mpv, iconos y `version.txt`. El cuerpo de la release incluye el marcador de versión para el actualizador in-app.
 
 ## Aviso legal
 

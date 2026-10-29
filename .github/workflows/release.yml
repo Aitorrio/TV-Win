@@ -2,8 +2,9 @@ name: Release Windows
 
 on:
   push:
-    tags:
-      - "v*"
+    branches:
+      - main
+      - beta
   workflow_dispatch:
 
 permissions:
@@ -15,6 +16,27 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Resolve channel
+        id: meta
+        shell: pwsh
+        run: |
+          $branch = "${{ github.ref_name }}"
+          if ($branch -eq "beta") {
+            $tag = "latest-beta"
+            $name = "TV-Win latest-beta"
+            $channel = "beta"
+          } else {
+            $tag = "latest-stable"
+            $name = "TV-Win latest-stable"
+            $channel = "stable"
+          }
+          $version = (Select-String -Path "tvwin/__init__.py" -Pattern '__version__\s*=\s*"([^"]+)"').Matches[0].Groups[1].Value
+          "tag=$tag" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "name=$name" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "channel=$channel" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          Write-Host "channel=$channel tag=$tag version=$version"
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -52,6 +74,7 @@ jobs:
           Copy-Item "player/mpv.exe" "dist/TV-Win/player/mpv.exe" -Force
           New-Item -ItemType Directory -Force -Path "dist/TV-Win/assets" | Out-Null
           Copy-Item -Recurse -Force "assets/*" "dist/TV-Win/assets/"
+          Set-Content -Path "dist/TV-Win/version.txt" -Value "${{ steps.meta.outputs.version }}" -Encoding utf8
           if (-not (Test-Path "dist/TV-Win/player/mpv.exe") -and -not (Test-Path "dist/TV-Win/_internal/player/mpv.exe")) {
             throw "Build sin mpv.exe"
           }
@@ -59,8 +82,11 @@ jobs:
       - name: Pack ZIP
         shell: pwsh
         run: |
+          $ver = "${{ steps.meta.outputs.version }}"
+          $channel = "${{ steps.meta.outputs.channel }}"
           @"
-          TV-Win — Televisión en abierto para Windows
+          TV-Win $ver ($channel)
+          Televisión en abierto para Windows
           Autor: Aitor Riolobos (EA4HBL)
           https://github.com/Aitorrio/TV-Win
 
@@ -78,24 +104,29 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: TV-Win-windows-x64
+          name: TV-Win-windows-x64-${{ steps.meta.outputs.channel }}
           path: TV-Win-windows-x64.zip
 
-      - name: Publish GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Publish rolling release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          name: ${{ steps.meta.outputs.name }}
+          prerelease: ${{ steps.meta.outputs.channel == 'beta' }}
+          target_commitish: ${{ github.sha }}
           files: TV-Win-windows-x64.zip
-          generate_release_notes: true
+          make_latest: ${{ steps.meta.outputs.channel == 'stable' }}
           body: |
-            ## TV-Win ${{ github.ref_name }}
+            ## TV-Win ${{ steps.meta.outputs.version }} (${{ steps.meta.outputs.channel }})
 
             Portable para Windows x64. Extrae y ejecuta `TV-Win.exe`.
 
-            - Favoritos, zapping y pantalla completa
-            - Logos de canal, ajustes y bandeja del sistema
-            - Aviso de nuevas versiones en GitHub
+            - Atresplayer con audio (DASH) y sin ventana de consola
+            - Favoritos, zapping, pantalla completa, logos y bandeja
+            - Actualización desde la propia app (Estable / Beta)
 
             Autor: **Aitor Riolobos (EA4HBL)** · https://github.com/Aitorrio
+
+            <!-- tv-win-build: version=${{ steps.meta.outputs.version }} -->
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
