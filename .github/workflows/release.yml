@@ -130,7 +130,7 @@ jobs:
 
             Portable para Windows x64. Extrae y ejecuta `TV-Win.exe`.
 
-            - Atresplayer estable: Streamlink + ffmpeg (mux DASH) → mpv, sin consola
+            - Atresplayer: Streamlink + ffmpeg → mpv (sin ventana CMD)
             - Favoritos, zapping, pantalla completa, logos y bandeja
             - Actualización desde la propia app (Estable / Beta)
 

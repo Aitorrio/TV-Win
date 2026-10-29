@@ -6,9 +6,10 @@ import os
 import shutil
 import subprocess
 import threading
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 from .channels import Channel
 from .paths import vendor_ffmpeg, vendor_mpv
@@ -34,6 +35,37 @@ _DEFAULT_UA = (
 
 class PlayerError(RuntimeError):
     pass
+
+
+@contextmanager
+def _hidden_console_subprocesses() -> Iterator[None]:
+    """
+    Streamlink lanza ffmpeg.exe (subsystem consola) sin CREATE_NO_WINDOW.
+    Parche temporal de Popen para no abrir CMD al muxear DASH.
+    """
+    if os.name != "nt":
+        yield
+        return
+
+    original = subprocess.Popen
+
+    def patched(*args: Any, **kwargs: Any):  # noqa: ANN401
+        flags = kwargs.get("creationflags", 0) or 0
+        kwargs["creationflags"] = flags | _CREATE_NO_WINDOW
+        # Evita consola heredada / flash de ventana.
+        startupinfo = kwargs.get("startupinfo")
+        if startupinfo is None:
+            startupinfo = subprocess.STARTUPINFO()
+            kwargs["startupinfo"] = startupinfo
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW  # type: ignore[attr-defined]
+        startupinfo.wShowWindow = 0  # SW_HIDE
+        return original(*args, **kwargs)
+
+    subprocess.Popen = patched  # type: ignore[misc, assignment]
+    try:
+        yield
+    finally:
+        subprocess.Popen = original  # type: ignore[misc]
 
 
 @dataclass
@@ -246,19 +278,15 @@ class StreamPlayer:
         )
 
         try:
-            fd = stream.open()
+            # open() arranca ffmpeg; hay que ocultar su consola en Windows.
+            with _hidden_console_subprocesses():
+                fd = stream.open()
+                first = fd.read(256 * 1024)
+        except PlayerError:
+            raise
         except Exception as exc:  # noqa: BLE001
             raise PlayerError(f"No se pudo abrir el stream: {exc}") from exc
 
-        # Primer bloque antes de abrir mpv: evita que cierre por stdin vacío.
-        try:
-            first = fd.read(256 * 1024)
-        except Exception as exc:  # noqa: BLE001
-            try:
-                fd.close()
-            except Exception:  # noqa: BLE001
-                pass
-            raise PlayerError(f"Sin datos del stream: {exc}") from exc
         if not first:
             try:
                 fd.close()
