@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path
 
 from .channels import Channel
@@ -21,14 +22,25 @@ VLC_CANDIDATES = (
     Path(r"C:\Program Files\VideoLAN\VLC\vlc.exe"),
     Path(r"C:\Program Files (x86)\VideoLAN\VLC\vlc.exe"),
 )
+
+
 class PlayerError(RuntimeError):
     pass
 
 
+@dataclass
+class PlayerOptions:
+    geometry: str = "80%"
+    fullscreen: bool = False
+
+
 class StreamPlayer:
-    def __init__(self) -> None:
+    def __init__(self, options: PlayerOptions | None = None) -> None:
         self._process: subprocess.Popen[str] | None = None
         self._backend = self._detect_backend()
+        self.options = options or PlayerOptions()
+        self._last_channel: Channel | None = None
+        self._last_media_url: str | None = None
         self._streamlink_config = Path(tempfile.gettempdir()) / "tv-win-streamlink.conf"
         if not self._streamlink_config.exists():
             self._streamlink_config.write_text("", encoding="utf-8")
@@ -69,10 +81,29 @@ class StreamPlayer:
         exe = shutil.which("streamlink")
         if exe:
             return [exe]
-        # En .exe empaquetado sys.executable no es Python.
         if getattr(sys, "frozen", False):
             return None
         return [sys.executable, "-m", "streamlink"]
+
+    def _mpv_window_args(self, title: str) -> list[str]:
+        args = [
+            "--force-window=immediate",
+            "--keep-open=no",
+            "--terminal=no",
+            "--osc=yes",
+            f"--title={title}",
+        ]
+        if self.options.fullscreen:
+            args.append("--fs")
+        else:
+            geometry = (self.options.geometry or "80%").strip() or "80%"
+            args.append(f"--geometry={geometry}")
+        return args
+
+    def _player_args_string(self, title: str) -> str:
+        parts = self._mpv_window_args(title)
+        # streamlink --player-args: espacios separados
+        return " ".join(parts)
 
     def stop(self) -> None:
         if self._process is None:
@@ -88,27 +119,18 @@ class StreamPlayer:
     def _play_direct(self, channel: Channel, media_url: str) -> None:
         name = self.backend_name
         exe = str(self.backend_path)
+        title = f"TV-Win · {channel.name}"
         extra: list[str] = []
         if channel.referer and name == "mpv":
             extra.append(f"--referrer={channel.referer}")
 
         if name == "mpv":
-            args = [
-                exe,
-                "--force-window=immediate",
-                "--keep-open=no",
-                "--terminal=no",
-                "--osc=yes",
-                f"--title=TV-Win · {channel.name}",
-                "--geometry=80%",
-                *extra,
-                media_url,
-            ]
+            args = [exe, *self._mpv_window_args(title), *extra, media_url]
         else:
             args = [
                 exe,
-                "--fullscreen",
-                f"--meta-title=TV-Win — {channel.name}",
+                "--fullscreen" if self.options.fullscreen else "--no-fullscreen",
+                f"--meta-title={title}",
                 media_url,
             ]
 
@@ -122,6 +144,8 @@ class StreamPlayer:
             stderr=subprocess.DEVNULL,
             creationflags=creationflags,
         )
+        self._last_channel = channel
+        self._last_media_url = media_url
 
     def _resolve_streamlink_api(self, page_url: str) -> str:
         try:
@@ -144,10 +168,7 @@ class StreamPlayer:
             raise PlayerError(f"No se pudo resolver el stream: {exc}") from exc
 
     def _play_via_streamlink_cli(self, channel: Channel, cmd: list[str]) -> None:
-        player_args = (
-            f"--force-window=yes --geometry=80% "
-            f"--title=TV-Win — {channel.name}"
-        )
+        title = f"TV-Win · {channel.name}"
         args = [
             *cmd,
             "--config",
@@ -155,7 +176,7 @@ class StreamPlayer:
             "--player",
             str(self.backend_path),
             "--player-args",
-            player_args,
+            self._player_args_string(title),
             "--default-stream",
             "best",
             "--retry-streams",
@@ -176,6 +197,8 @@ class StreamPlayer:
         try:
             code = self._process.wait(timeout=1.5)
         except subprocess.TimeoutExpired:
+            self._last_channel = channel
+            self._last_media_url = None
             return
         err = ""
         if self._process.stderr is not None:
@@ -194,13 +217,10 @@ class StreamPlayer:
                 self._play_via_streamlink_cli(channel, cmd)
                 return
             except PlayerError:
-                # Fallback a API Python (también sirve empaquetado).
                 pass
 
         media_url = self._resolve_streamlink_api(channel.url)
-        # Cabeceras útiles para manifiestos Atresmedia.
         referer = channel.referer or "https://www.atresplayer.com/"
-        # Monkey-patch temporal del referer del canal para _play_direct
         patched = Channel(
             id=channel.id,
             name=channel.name,
@@ -216,7 +236,6 @@ class StreamPlayer:
         self._play_direct(patched, media_url)
 
     def _play_mediaset(self, channel: Channel) -> None:
-        """Como la APK: HLS SSAI de Mediaset (anuncios de la cadena, sin muro de cookies)."""
         from .mediaset import MediasetError, resolve_hls
 
         try:
@@ -252,6 +271,22 @@ class StreamPlayer:
             self._play_via_streamlink(channel)
         else:
             self._play_direct(channel, channel.url)
+
+    def set_fullscreen(self, enabled: bool) -> None:
+        """Relanza el stream actual con/sin pantalla completa."""
+        self.options.fullscreen = enabled
+        if self._last_media_url and self._last_channel is not None:
+            channel = self._last_channel
+            media = self._last_media_url
+            self.stop()
+            self._play_direct(channel, media)
+        elif self._last_channel is not None and self.is_running():
+            channel = self._last_channel
+            self.play(channel)
+
+    def toggle_fullscreen(self) -> bool:
+        self.set_fullscreen(not self.options.fullscreen)
+        return self.options.fullscreen
 
     def is_running(self) -> bool:
         return self._process is not None and self._process.poll() is None

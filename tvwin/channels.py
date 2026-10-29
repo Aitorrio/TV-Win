@@ -12,7 +12,7 @@ from pathlib import Path
 # Descubierto en TDTSpain.apk: versionvN.json + canalesvN.json
 VERSION_URL = "https://www.tdtspain.com/canales/versionv1.json"
 CHANNELS_URL = "https://www.tdtspain.com/canales/canalesv1.json"
-USER_AGENT = "TV-Win/1.0 (personal; compatible; +https://www.tdtspain.com/)"
+USER_AGENT = "TV-Win/1.2 (personal; compatible; +https://github.com/Aitorrio/TV-Win)"
 CACHE_TTL_SECONDS = 6 * 60 * 60
 
 # Grupos preferentes (orden de la app Android: Nacionales primero).

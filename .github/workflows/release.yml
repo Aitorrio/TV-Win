@@ -39,12 +39,19 @@ jobs:
             --name TV-Win `
             --onedir `
             --clean `
+            --icon "assets/tv-win.ico" `
+            --add-data "assets;assets" `
             --add-binary "player/mpv.exe;player" `
             --collect-all streamlink `
+            --collect-all pystray `
             --hidden-import streamlink.plugins.atresplayer `
+            --hidden-import PIL `
+            --hidden-import PIL._tkinter_finder `
             main.py
           New-Item -ItemType Directory -Force -Path "dist/TV-Win/player" | Out-Null
           Copy-Item "player/mpv.exe" "dist/TV-Win/player/mpv.exe" -Force
+          New-Item -ItemType Directory -Force -Path "dist/TV-Win/assets" | Out-Null
+          Copy-Item -Recurse -Force "assets/*" "dist/TV-Win/assets/"
           if (-not (Test-Path "dist/TV-Win/player/mpv.exe") -and -not (Test-Path "dist/TV-Win/_internal/player/mpv.exe")) {
             throw "Build sin mpv.exe"
           }
@@ -52,8 +59,17 @@ jobs:
       - name: Pack ZIP
         shell: pwsh
         run: |
-          $ver = "${{ github.ref_name }}"
-          if ($ver -notlike "v*") { $ver = "dev" }
+          @"
+          TV-Win — Televisión en abierto para Windows
+          Autor: Aitor Riolobos (EA4HBL)
+          https://github.com/Aitorrio/TV-Win
+
+          1. Extrae esta carpeta
+          2. Ejecuta TV-Win.exe
+          3. Elige un canal (doble clic o Ver canal)
+
+          Controles: Enter ver · Esc parar · F favorito · F11 pantalla · PgUp/PgDn zap
+          "@ | Set-Content -Path "dist/TV-Win/LEEME.txt" -Encoding UTF8
           $zip = "TV-Win-windows-x64.zip"
           if (Test-Path $zip) { Remove-Item $zip -Force }
           Compress-Archive -Path "dist/TV-Win/*" -DestinationPath $zip -Force
@@ -75,6 +91,10 @@ jobs:
             ## TV-Win ${{ github.ref_name }}
 
             Portable para Windows x64. Extrae y ejecuta `TV-Win.exe`.
+
+            - Favoritos, zapping y pantalla completa
+            - Logos de canal, ajustes y bandeja del sistema
+            - Aviso de nuevas versiones en GitHub
 
             Autor: **Aitor Riolobos (EA4HBL)** · https://github.com/Aitorrio
         env:

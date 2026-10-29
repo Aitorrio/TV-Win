@@ -26,9 +26,17 @@ Algunos canales pueden exigir IP en España (GEO).
 
 ## Controles
 
-- `Enter` — ver canal  
-- `Esc` — detener  
-- `F5` — actualizar catálogo  
+| Tecla | Acción |
+|-------|--------|
+| `Enter` | Ver canal |
+| `Esc` | Detener |
+| `F5` | Actualizar catálogo |
+| `F` | Marcar / quitar favorito |
+| `F11` | Pantalla completa (mpv) |
+| `PgUp` / `PgDn` | Canal anterior / siguiente |
+| `Ctrl` + `,` | Ajustes |
+
+También: filtro **Favoritos**, clic en ★/☆ de la lista, bandeja del sistema (opcional en Ajustes) y aviso si hay una release nueva en GitHub.
 
 ## Desarrollo
 
@@ -52,15 +60,15 @@ build_portable.bat
 
 ## Release automática
 
-Al publicar un tag `v*` (por ejemplo `v1.1.0`), GitHub Actions:
+Al publicar un tag `v*` (por ejemplo `v1.2.0`), GitHub Actions:
 
 1. Compila en Windows  
-2. Embebe mpv  
+2. Embebe mpv e iconos  
 3. Sube `TV-Win-windows-x64.zip` a la Release  
 
 ```bash
-git tag v1.1.0
-git push origin v1.1.0
+git tag v1.2.0
+git push origin v1.2.0
 ```
 
 ## Aviso legal

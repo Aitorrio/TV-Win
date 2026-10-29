@@ -20,6 +20,29 @@ def resource_dir() -> Path:
     return app_dir()
 
 
+def assets_dir() -> Path:
+    """Carpeta assets/ (desarrollo, onedir junto al exe, o _MEIPASS)."""
+    candidates = (
+        resource_dir() / "assets",
+        app_dir() / "assets",
+        app_dir() / "_internal" / "assets",
+    )
+    for path in candidates:
+        if path.is_dir():
+            return path
+    return app_dir() / "assets"
+
+
+def asset_path(*parts: str) -> Path:
+    return assets_dir().joinpath(*parts)
+
+
+def data_dir() -> Path:
+    base = Path.home() / ".tv-win"
+    base.mkdir(parents=True, exist_ok=True)
+    return base
+
+
 def vendor_mpv() -> Path | None:
     candidates = (
         app_dir() / "player" / "mpv.exe",
