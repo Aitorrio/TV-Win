@@ -26,7 +26,7 @@ La app puede comprobar y aplicar actualizaciones sola (Ajustes → canal Estable
 | Tipo | Ejemplos | Cómo |
 |------|----------|------|
 | HLS directo | La 1, La 2, TRECE | mpv |
-| Atresmedia | Antena 3, laSexta, Neox… | Streamlink API → DASH/HLS → mpv |
+| Atresmedia | Antena 3, laSexta, Neox… | Streamlink + ffmpeg (mux DASH) → mpv |
 | Mediaset | Cuatro, Telecinco, FDF… | HLS SSAI → mpv (anuncios de la cadena) |
 
 Algunos canales pueden exigir IP en España (GEO).

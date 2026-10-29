@@ -52,6 +52,10 @@ jobs:
         shell: pwsh
         run: ./scripts/fetch_mpv.ps1
 
+      - name: Fetch embedded ffmpeg
+        shell: pwsh
+        run: ./scripts/fetch_ffmpeg.ps1
+
       - name: Build portable
         shell: pwsh
         run: |
@@ -64,6 +68,7 @@ jobs:
             --icon "assets/tv-win.ico" `
             --add-data "assets;assets" `
             --add-binary "player/mpv.exe;player" `
+            --add-binary "player/ffmpeg.exe;player" `
             --collect-all streamlink `
             --collect-all pystray `
             --hidden-import streamlink.plugins.atresplayer `
@@ -72,11 +77,15 @@ jobs:
             main.py
           New-Item -ItemType Directory -Force -Path "dist/TV-Win/player" | Out-Null
           Copy-Item "player/mpv.exe" "dist/TV-Win/player/mpv.exe" -Force
+          Copy-Item "player/ffmpeg.exe" "dist/TV-Win/player/ffmpeg.exe" -Force
           New-Item -ItemType Directory -Force -Path "dist/TV-Win/assets" | Out-Null
           Copy-Item -Recurse -Force "assets/*" "dist/TV-Win/assets/"
           Set-Content -Path "dist/TV-Win/version.txt" -Value "${{ steps.meta.outputs.version }}" -Encoding utf8
           if (-not (Test-Path "dist/TV-Win/player/mpv.exe") -and -not (Test-Path "dist/TV-Win/_internal/player/mpv.exe")) {
             throw "Build sin mpv.exe"
+          }
+          if (-not (Test-Path "dist/TV-Win/player/ffmpeg.exe") -and -not (Test-Path "dist/TV-Win/_internal/player/ffmpeg.exe")) {
+            throw "Build sin ffmpeg.exe"
           }
 
       - name: Pack ZIP
@@ -121,7 +130,7 @@ jobs:
 
             Portable para Windows x64. Extrae y ejecuta `TV-Win.exe`.
 
-            - Atresplayer con audio (DASH) y sin ventana de consola
+            - Atresplayer estable: Streamlink + ffmpeg (mux DASH) → mpv, sin consola
             - Favoritos, zapping, pantalla completa, logos y bandeja
             - Actualización desde la propia app (Estable / Beta)
 

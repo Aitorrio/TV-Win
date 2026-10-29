@@ -54,3 +54,15 @@ def vendor_mpv() -> Path | None:
         if path.is_file():
             return path
     return None
+
+
+def vendor_ffmpeg() -> Path | None:
+    candidates = (
+        app_dir() / "player" / "ffmpeg.exe",
+        app_dir() / "_internal" / "player" / "ffmpeg.exe",
+        resource_dir() / "player" / "ffmpeg.exe",
+    )
+    for path in candidates:
+        if path.is_file():
+            return path
+    return None
